@@ -1,4 +1,4 @@
-module github.com/sasakidaisuke/ec-platform/gen
+module github.com/sasakidaisuke/example-ec-platform/gen
 
 go 1.25
 

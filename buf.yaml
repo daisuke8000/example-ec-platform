@@ -2,7 +2,7 @@ version: v2
 
 modules:
   - path: proto
-    name: buf.build/sasakidaisuke/ec-platform
+    name: buf.build/sasakidaisuke/example-ec-platform
 
 deps:
   - buf.build/googleapis/googleapis
