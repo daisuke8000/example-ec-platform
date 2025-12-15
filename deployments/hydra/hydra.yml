@@ -1,0 +1,207 @@
+# ==============================================================================
+# Ory Hydra Configuration
+# OAuth2 / OpenID Connect Server for EC-Platform
+# ==============================================================================
+
+# https://www.ory.sh/docs/hydra/reference/configuration
+
+version: v2.2.0
+
+# ------------------------------------------------------------------------------
+# Server Configuration
+# ------------------------------------------------------------------------------
+serve:
+  public:
+    port: 4444
+    host: 0.0.0.0
+    cors:
+      enabled: true
+      allowed_origins:
+        - http://localhost:3000
+        - http://localhost:5173
+      allowed_methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+        - X-Requested-With
+      exposed_headers:
+        - Content-Type
+      allow_credentials: true
+      max_age: 3600
+      debug: true
+
+  admin:
+    port: 4445
+    host: 0.0.0.0
+    cors:
+      enabled: true
+      allowed_origins:
+        - http://localhost:3000
+      allowed_methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - PATCH
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+
+  cookies:
+    same_site_mode: Lax
+    same_site_legacy_workaround: false
+
+# ------------------------------------------------------------------------------
+# URLs Configuration
+# ------------------------------------------------------------------------------
+urls:
+  self:
+    issuer: http://localhost:4444
+    public: http://localhost:4444
+
+  # Login/Consent Provider (User Service handles these)
+  login: http://localhost:50051/oauth2/login
+  consent: http://localhost:50051/oauth2/consent
+  logout: http://localhost:50051/oauth2/logout
+  error: http://localhost:50051/oauth2/error
+  post_logout_redirect: http://localhost:3000
+
+# ------------------------------------------------------------------------------
+# OAuth2 Configuration
+# ------------------------------------------------------------------------------
+oauth2:
+  expose_internal_errors: true  # Set to false in production
+
+  # Session settings
+  session:
+    encrypt_at_rest: true
+    cookie:
+      same_site_mode: Lax
+
+  # PKCE (Proof Key for Code Exchange) - recommended for SPAs
+  pkce:
+    enforced: false  # Set to true for better security with public clients
+    enforced_for_public_clients: true
+
+  # Token configuration
+  hashers:
+    bcrypt:
+      cost: 10
+
+  # Grant types available
+  grant:
+    jwt:
+      # Use RS256 for JWT access tokens
+      jti_optional: false
+      max_ttl: 1h
+
+# ------------------------------------------------------------------------------
+# OIDC Configuration
+# ------------------------------------------------------------------------------
+oidc:
+  # Subject types supported
+  subject_identifiers:
+    supported_types:
+      - public
+      - pairwise
+    pairwise:
+      salt: CHANGE_THIS_PAIRWISE_SALT_IN_PRODUCTION
+
+  # Dynamic client registration (disabled for security)
+  dynamic_client_registration:
+    enabled: false
+
+# ------------------------------------------------------------------------------
+# Token Time-To-Live (TTL)
+# ------------------------------------------------------------------------------
+ttl:
+  # Short-lived access tokens for security
+  access_token: 15m
+
+  # Refresh tokens for seamless UX
+  refresh_token: 168h  # 7 days
+
+  # ID token lifetime
+  id_token: 1h
+
+  # Authorization code (should be short)
+  auth_code: 10m
+
+  # Login/consent challenge lifetime
+  login_consent_request: 30m
+
+# ------------------------------------------------------------------------------
+# Secrets (Override via environment variables in production!)
+# ------------------------------------------------------------------------------
+secrets:
+  # System secret for encrypting data at rest
+  # MUST be at least 32 bytes, change in production
+  system:
+    - CHANGE_ME_IN_PRODUCTION_32_BYTES_MIN
+
+  # Cookie secret for session encryption
+  cookie:
+    - CHANGE_ME_COOKIE_SECRET_32_BYTES
+
+# ------------------------------------------------------------------------------
+# Database (Override via DSN environment variable)
+# ------------------------------------------------------------------------------
+# dsn: postgres://ecplatform:ecplatform_secret@postgres:5432/ecplatform?sslmode=disable
+
+# ------------------------------------------------------------------------------
+# Logging
+# ------------------------------------------------------------------------------
+log:
+  level: debug  # Change to 'info' or 'warn' in production
+  format: json
+  leak_sensitive_values: true  # Set to false in production
+
+# ------------------------------------------------------------------------------
+# Tracing (Optional - for OpenTelemetry)
+# ------------------------------------------------------------------------------
+tracing:
+  provider: otel
+  providers:
+    otel:
+      insecure: true
+      sampling:
+        sampling_ratio: 1.0
+      endpoint: localhost:4317
+  # Enable when OTEL_ENABLED=true
+  # service_name: hydra
+
+# ------------------------------------------------------------------------------
+# Strategies
+# ------------------------------------------------------------------------------
+strategies:
+  # Access token strategy - use 'jwt' for stateless tokens
+  access_token: jwt
+
+  # Scope strategy - decide how scopes are matched
+  scope: exact
+
+# ------------------------------------------------------------------------------
+# Webfinger (OIDC Discovery)
+# ------------------------------------------------------------------------------
+webfinger:
+  oidc_discovery:
+    supported_scope:
+      - openid
+      - offline_access
+      - profile
+      - email
+    supported_claims:
+      - sub
+      - iss
+      - aud
+      - exp
+      - iat
+      - name
+      - email
+      - email_verified

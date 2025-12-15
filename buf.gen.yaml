@@ -1,0 +1,31 @@
+version: v2
+
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/sasakidaisuke/ec-platform/gen
+
+clean: true
+
+plugins:
+  # Go protobuf generation
+  - remote: buf.build/protocolbuffers/go
+    out: gen
+    opt:
+      - paths=source_relative
+
+  # gRPC-Go generation
+  - remote: buf.build/grpc/go
+    out: gen
+    opt:
+      - paths=source_relative
+
+  # Connect-go generation (for BFF)
+  - remote: buf.build/connectrpc/go
+    out: gen
+    opt:
+      - paths=source_relative
+
+inputs:
+  - directory: proto

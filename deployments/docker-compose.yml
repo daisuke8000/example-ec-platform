@@ -1,0 +1,140 @@
+# ==============================================================================
+# EC-Platform Infrastructure
+# Development environment with PostgreSQL, Redis, and Ory Hydra
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: ec-platform-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ecplatform
+      POSTGRES_PASSWORD: ecplatform_secret
+      POSTGRES_DB: ecplatform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecplatform -d ecplatform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ec-platform-network
+
+  # ----------------------------------------------------------------------------
+  # Redis Cache
+  # Used for: JWKS cache, Idempotency keys, Session cache
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: ec-platform-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ec-platform-network
+
+  # ----------------------------------------------------------------------------
+  # Ory Hydra - OAuth2 / OpenID Connect Server
+  # ----------------------------------------------------------------------------
+  hydra-migrate:
+    image: oryd/hydra:v2.2.0
+    container_name: ec-platform-hydra-migrate
+    environment:
+      - DSN=postgres://ecplatform:ecplatform_secret@postgres:5432/ecplatform?sslmode=disable
+    command: migrate sql -e --yes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ec-platform-network
+    restart: on-failure
+
+  hydra:
+    image: oryd/hydra:v2.2.0
+    container_name: ec-platform-hydra
+    restart: unless-stopped
+    environment:
+      # Database
+      - DSN=postgres://ecplatform:ecplatform_secret@postgres:5432/ecplatform?sslmode=disable
+
+      # Secrets (CHANGE IN PRODUCTION!)
+      - SECRETS_SYSTEM=CHANGE_ME_IN_PRODUCTION_32_BYTES_MIN
+      - SECRETS_COOKIE=CHANGE_ME_COOKIE_SECRET_32_BYTES
+
+      # URLs
+      - URLS_SELF_ISSUER=http://localhost:4444
+      - URLS_SELF_PUBLIC=http://localhost:4444
+      - URLS_LOGIN=http://localhost:50051/oauth2/login
+      - URLS_CONSENT=http://localhost:50051/oauth2/consent
+      - URLS_LOGOUT=http://localhost:50051/oauth2/logout
+      - URLS_ERROR=http://localhost:50051/oauth2/error
+      - URLS_POST_LOGOUT_REDIRECT=http://localhost:3000
+
+      # Token Configuration
+      - TTL_ACCESS_TOKEN=15m
+      - TTL_REFRESH_TOKEN=168h
+      - TTL_ID_TOKEN=1h
+      - TTL_AUTH_CODE=10m
+
+      # OAuth2 Settings
+      - OAUTH2_EXPOSE_INTERNAL_ERRORS=true
+      - OAUTH2_HASHERS_BCRYPT_COST=10
+
+      # Development settings (disable in production)
+      - LOG_LEVEL=debug
+      - LOG_FORMAT=json
+      - SERVE_PUBLIC_CORS_ENABLED=true
+      - SERVE_PUBLIC_CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+      - SERVE_PUBLIC_CORS_ALLOWED_METHODS=GET,POST,PUT,DELETE,OPTIONS
+      - SERVE_PUBLIC_CORS_ALLOWED_HEADERS=Authorization,Content-Type
+      - SERVE_ADMIN_CORS_ENABLED=true
+    command: serve all --dev
+    ports:
+      - "4444:4444"  # Public API (OAuth2 flows, JWKS, userinfo)
+      - "4445:4445"  # Admin API (client management, consent handling)
+    volumes:
+      - ./hydra/hydra.yml:/etc/config/hydra/hydra.yml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hydra-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4445/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ec-platform-network
+
+# ------------------------------------------------------------------------------
+# Volumes
+# ------------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ------------------------------------------------------------------------------
+# Networks
+# ------------------------------------------------------------------------------
+networks:
+  ec-platform-network:
+    driver: bridge
