@@ -15,6 +15,9 @@ type Config struct {
 	// Server configuration
 	Server ServerConfig
 
+	// Backend services configuration
+	Backend BackendConfig
+
 	// JWT verification configuration
 	JWT JWTConfig
 
@@ -29,6 +32,13 @@ type Config struct {
 
 	// Observability configuration
 	Observability ObservabilityConfig
+}
+
+type BackendConfig struct {
+	UserServiceURL    string        `env:"USER_SERVICE_URL,required"`
+	ProductServiceURL string        `env:"PRODUCT_SERVICE_URL"`
+	OrderServiceURL   string        `env:"ORDER_SERVICE_URL"`
+	RequestTimeout    time.Duration `env:"BACKEND_REQUEST_TIMEOUT,default=10s"`
 }
 
 // ServerConfig holds server-related configuration.
@@ -186,6 +196,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Observability.ServiceName == "" {
 		errs = append(errs, errors.New("OTEL_SERVICE_NAME must not be empty"))
+	}
+
+	// Validate backend config
+	if c.Backend.UserServiceURL == "" {
+		errs = append(errs, errors.New("USER_SERVICE_URL is required"))
+	}
+	if c.Backend.RequestTimeout < time.Second {
+		errs = append(errs, errors.New("BACKEND_REQUEST_TIMEOUT must be at least 1 second"))
 	}
 
 	if len(errs) > 0 {
