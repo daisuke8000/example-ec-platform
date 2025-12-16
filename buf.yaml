@@ -9,7 +9,7 @@ deps:
 
 lint:
   use:
-    - STANDARD
+    - DEFAULT
   except:
     - PACKAGE_VERSION_SUFFIX
 

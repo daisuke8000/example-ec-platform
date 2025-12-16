@@ -4,9 +4,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/sasakidaisuke/example-ec-platform/gen
-
-clean: true
+      value: github.com/daisuke8000/example-ec-platform/gen
 
 plugins:
   # Go protobuf generation

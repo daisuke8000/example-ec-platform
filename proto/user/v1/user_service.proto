@@ -1,0 +1,126 @@
+// ==============================================================================
+// User Service API
+// gRPC service for user management operations
+// ==============================================================================
+
+syntax = "proto3";
+
+package user.v1;
+
+option go_package = "github.com/daisuke8000/example-ec-platform/gen/user/v1;userv1";
+
+// UserService provides user management operations for internal services.
+// This service handles user CRUD operations and password verification.
+service UserService {
+  // CreateUser registers a new user with email and password.
+  // Returns ALREADY_EXISTS if email is already registered.
+  // Returns INVALID_ARGUMENT if email format is invalid or password is too short.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+
+  // GetUser retrieves a user by their unique identifier.
+  // Returns NOT_FOUND if user doesn't exist or is soft-deleted.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+
+  // UpdateUser modifies user profile information.
+  // Returns NOT_FOUND if user doesn't exist or is soft-deleted.
+  // Returns ALREADY_EXISTS if new email is already taken.
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+
+  // DeleteUser performs soft deletion of a user account.
+  // Returns NOT_FOUND if user doesn't exist or is already deleted.
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+
+  // VerifyPassword validates user credentials for authentication.
+  // Returns UNAUTHENTICATED for invalid credentials (timing-safe).
+  // Note: Same error returned for non-existent email or wrong password.
+  rpc VerifyPassword(VerifyPasswordRequest) returns (VerifyPasswordResponse);
+}
+
+// CreateUserRequest contains the data required to register a new user.
+message CreateUserRequest {
+  // Email address for the new account (must be unique, RFC 5322 format).
+  string email = 1;
+
+  // Password for the account (minimum 8 characters).
+  // Will be hashed with bcrypt before storage.
+  string password = 2;
+
+  // Optional display name for the user.
+  optional string name = 3;
+}
+
+// CreateUserResponse contains the newly created user data.
+message CreateUserResponse {
+  User user = 1;
+}
+
+// GetUserRequest identifies the user to retrieve.
+message GetUserRequest {
+  // UUID string identifying the user.
+  string id = 1;
+}
+
+// GetUserResponse contains the requested user data.
+message GetUserResponse {
+  User user = 1;
+}
+
+// UpdateUserRequest contains the fields to update for a user.
+message UpdateUserRequest {
+  // UUID string identifying the user to update.
+  string id = 1;
+
+  // New email address (optional, must be unique if provided).
+  optional string email = 2;
+
+  // New display name (optional).
+  optional string name = 3;
+}
+
+// UpdateUserResponse contains the updated user data.
+message UpdateUserResponse {
+  User user = 1;
+}
+
+// DeleteUserRequest identifies the user to soft-delete.
+message DeleteUserRequest {
+  // UUID string identifying the user to delete.
+  string id = 1;
+}
+
+// DeleteUserResponse is empty on successful deletion.
+message DeleteUserResponse {}
+
+// VerifyPasswordRequest contains credentials for authentication.
+message VerifyPasswordRequest {
+  // Email address of the user attempting to authenticate.
+  string email = 1;
+
+  // Plain-text password to verify against stored hash.
+  string password = 2;
+}
+
+// VerifyPasswordResponse contains the authenticated user's ID.
+message VerifyPasswordResponse {
+  // UUID string of the authenticated user.
+  string user_id = 1;
+}
+
+// User represents a platform user's public profile data.
+// Note: password_hash is never exposed in this message.
+message User {
+  // Unique identifier (UUID format).
+  string id = 1;
+
+  // Email address (unique among active users).
+  string email = 2;
+
+  // Optional display name.
+  optional string name = 3;
+
+  // Account creation timestamp (RFC3339 format).
+  string created_at = 4;
+
+  // Last update timestamp (RFC3339 format).
+  string updated_at = 5;
+}
