@@ -1,0 +1,25 @@
+name: Proto Dependency Analysis
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'proto/**'
+      - 'buf.yaml'
+      - 'buf.lock'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Analyze Proto Dependencies
+        uses: daisuke8000/coral@v0.1.0
+        with:
+          proto-path: 'proto'
+          comment-on-pr: 'true'
