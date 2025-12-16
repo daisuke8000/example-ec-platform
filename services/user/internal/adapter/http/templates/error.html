@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - Authentication</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            padding: 40px;
+            width: 100%;
+            max-width: 480px;
+            text-align: center;
+        }
+        .icon {
+            width: 80px;
+            height: 80px;
+            background: #fef2f2;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 40px;
+        }
+        h1 {
+            color: #dc2626;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        .error-code {
+            display: inline-block;
+            background: #fef2f2;
+            color: #dc2626;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: monospace;
+            margin-bottom: 16px;
+        }
+        .description {
+            color: #64748b;
+            font-size: 14px;
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+        .hint {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+        }
+        .hint h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+        .hint p {
+            font-size: 13px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+        .hint ul {
+            text-align: left;
+            margin-top: 12px;
+            padding-left: 20px;
+        }
+        .hint li {
+            font-size: 13px;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        .footer {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #e5e7eb;
+        }
+        .footer p {
+            color: #9ca3af;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">⚠️</div>
+        <h1>Authentication Error</h1>
+
+        {{if .ErrorCode}}
+        <div class="error-code">{{.ErrorCode}}</div>
+        {{end}}
+
+        <p class="description">
+            {{if .ErrorDescription}}
+                {{.ErrorDescription}}
+            {{else}}
+                An error occurred during the authentication process.
+            {{end}}
+        </p>
+
+        <div class="hint">
+            <h3>What you can try:</h3>
+            <ul>
+                <li>Go back and try signing in again</li>
+                <li>Clear your browser cookies and cache</li>
+                <li>Make sure you're using the correct credentials</li>
+                <li>Contact support if the problem persists</li>
+            </ul>
+        </div>
+
+        {{if .ErrorHint}}
+        <div class="hint">
+            <h3>Technical Details</h3>
+            <p>{{.ErrorHint}}</p>
+        </div>
+        {{end}}
+
+        <div class="footer">
+            <p>If this error persists, please contact support with the error code above.</p>
+        </div>
+    </div>
+</body>
+</html>

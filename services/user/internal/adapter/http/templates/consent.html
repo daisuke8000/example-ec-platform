@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authorize - {{.ClientName}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            padding: 40px;
+            width: 100%;
+            max-width: 480px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .header h1 {
+            color: #1a1a2e;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .header p {
+            color: #64748b;
+            font-size: 14px;
+        }
+        .client-info {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+        .client-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 4px;
+        }
+        .client-desc {
+            font-size: 14px;
+            color: #64748b;
+        }
+        .scopes-section {
+            margin-bottom: 24px;
+        }
+        .scopes-section h2 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 16px;
+        }
+        .scope-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        .scope-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin-right: 12px;
+            margin-top: 2px;
+            cursor: pointer;
+        }
+        .scope-details {
+            flex: 1;
+        }
+        .scope-name {
+            font-weight: 500;
+            color: #1e293b;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+        .scope-desc {
+            font-size: 13px;
+            color: #64748b;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 24px;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .checkbox-group label {
+            color: #64748b;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .buttons {
+            display: flex;
+            gap: 12px;
+        }
+        .btn {
+            flex: 1;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px -10px rgba(16, 185, 129, 0.5);
+        }
+        .btn-secondary {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+        .btn-secondary:hover {
+            background: #e2e8f0;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #e5e7eb;
+        }
+        .footer p {
+            color: #9ca3af;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Authorization Request</h1>
+            <p>An application is requesting access to your account</p>
+        </div>
+
+        <div class="client-info">
+            <div class="client-name">{{.ClientName}}</div>
+            <div class="client-desc">wants to access your account</div>
+        </div>
+
+        <form method="POST" action="/oauth2/consent">
+            <input type="hidden" name="consent_challenge" value="{{.Challenge}}">
+
+            <div class="scopes-section">
+                <h2>This application will be able to:</h2>
+                {{range .Scopes}}
+                <div class="scope-item">
+                    <input type="checkbox" name="grant_scope" value="{{.ID}}" id="scope_{{.ID}}" checked>
+                    <div class="scope-details">
+                        <div class="scope-name">{{.Name}}</div>
+                        <div class="scope-desc">{{.Description}}</div>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+
+            <div class="checkbox-group">
+                <input type="checkbox" id="remember" name="remember" value="true">
+                <label for="remember">Remember this decision for 30 days</label>
+            </div>
+
+            <div class="buttons">
+                <button type="submit" name="action" value="deny" class="btn btn-secondary">Deny</button>
+                <button type="submit" name="action" value="approve" class="btn btn-primary">Allow</button>
+            </div>
+        </form>
+
+        <div class="footer">
+            <p>You can revoke this access at any time from your account settings</p>
+        </div>
+    </div>
+</body>
+</html>
