@@ -12,6 +12,7 @@ require (
 	github.com/sethvargo/go-envconfig v1.0.3
 	golang.org/x/crypto v0.32.0
 	golang.org/x/net v0.25.0
+	google.golang.org/protobuf v1.35.2
 )
 
 require (
@@ -26,7 +27,6 @@ require (
 	golang.org/x/text v0.21.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240318140521-94a12d6c2237 // indirect
 	google.golang.org/grpc v1.64.0 // indirect
-	google.golang.org/protobuf v1.35.2 // indirect
 )
 
 replace (

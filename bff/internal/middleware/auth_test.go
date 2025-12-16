@@ -17,6 +17,7 @@ import (
 
 	jwtpkg "github.com/daisuke8000/example-ec-platform/bff/internal/jwt"
 	"github.com/daisuke8000/example-ec-platform/bff/internal/middleware"
+	pkgmw "github.com/daisuke8000/example-ec-platform/pkg/connect/middleware"
 )
 
 type authTestSetup struct {
@@ -138,8 +139,8 @@ func TestAuthInterceptor_ValidToken(t *testing.T) {
 	// Mock handler that checks context for user info
 	var capturedUserID, capturedScopes string
 	handler := func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		capturedUserID = middleware.GetUserID(ctx)
-		capturedScopes = middleware.GetScopes(ctx)
+		capturedUserID = pkgmw.GetUserID(ctx)
+		capturedScopes = pkgmw.GetScopes(ctx)
 		return connect.NewResponse(&struct{}{}), nil
 	}
 

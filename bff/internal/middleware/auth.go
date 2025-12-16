@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -81,16 +80,6 @@ func NewAuthInterceptor(
 			return next(ctx, req)
 		}
 	}
-}
-
-// GetUserID retrieves the user ID from context.
-func GetUserID(ctx context.Context) string {
-	return pkgmw.GetUserID(ctx)
-}
-
-// GetScopes retrieves the scopes from context as space-separated string.
-func GetScopes(ctx context.Context) string {
-	return pkgmw.GetScopes(ctx)
 }
 
 // getProcedure extracts procedure name from context or request.
@@ -206,10 +195,3 @@ func categorizeValidationError(err error) string {
 	}
 }
 
-// ExtractRequestID extracts correlation ID from request headers.
-func ExtractRequestID(r *http.Request) string {
-	if id := r.Header.Get("X-Request-ID"); id != "" {
-		return id
-	}
-	return ""
-}

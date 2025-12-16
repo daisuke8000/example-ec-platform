@@ -140,9 +140,8 @@ func (m *JWKSManager) GetKeyCount() int {
 	return set.Len()
 }
 
-// Close stops the background refresh goroutine.
+// Close marks the manager as unhealthy for graceful shutdown.
 func (m *JWKSManager) Close() {
-	// jwk.Cache doesn't have explicit close, but we can mark as unhealthy
 	m.setHealthy(false)
 }
 
