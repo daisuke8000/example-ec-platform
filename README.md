@@ -23,12 +23,12 @@ Frontend (SPA)
 
 ## サービス構成
 
-| Service | Port | 役割 |
-|---------|------|------|
-| BFF | 8080 | API集約、JWT検証 |
-| User | 50051 (gRPC) / 8051 (HTTP) | 認証、Hydra Login/Consent Provider |
-| Product | 50052 | 商品CRUD、在庫管理 |
-| Order | 50053 | 注文、永続化カート |
+| Service | Port | Protocol | 役割 |
+|---------|------|----------|------|
+| BFF | 8080 | Connect-go (HTTP/2) | API集約、JWT検証、BOLA保護 |
+| User | 50051 (Connect) / 8051 (HTTP) | Connect-go | ユーザー管理、Hydra Login/Consent Provider |
+| Product | 50052 | gRPC | 商品CRUD、在庫管理 |
+| Order | 50053 | gRPC | 注文、永続化カート |
 
 ## 技術スタック
 
@@ -68,6 +68,29 @@ make deps
 - **セキュリティ**: BOLA対策（全クエリでuser_id絞り込み）
 - **冪等性**: Order ServiceのCreateOrderに冪等性キー実装
 
+## E2Eテスト結果
+
+```bash
+# ヘルスチェック
+GET /health → 200 OK
+GET /ready  → 200 Ready
+
+# ユーザー作成（公開エンドポイント）
+POST /user.v1.UserService/CreateUser → 200 (user created)
+
+# 認証テスト
+POST /GetUser (認証なし)           → 401 Unauthenticated
+POST /GetUser (不正トークン)        → 401 Unauthenticated
+POST /GetUser (有効JWT, 自分のID)   → 404 Not Found (BOLA pass)
+POST /GetUser (有効JWT, 他人のID)   → 403 Permission Denied (BOLA block)
+```
+
+### BOLA保護の動作確認
+| 条件 | 結果 |
+|------|------|
+| JWT subject = リクエストID | ✅ 認可成功 |
+| JWT subject ≠ リクエストID | ❌ 403拒否 |
+
 ## ディレクトリ構造
 
 ```
@@ -95,35 +118,22 @@ example-ec-platform/
 - [x] Makefile 整備
 - [x] 各サービスのスケルトン作成
 
-### Phase 1: User Service + 認証基盤 🔄 (98% 完了)
+### Phase 1: User Service + 認証基盤 ✅
 - [x] Hydra Login/Consent Provider 実装
-- [x] User CRUD (gRPC handlers)
+- [x] User CRUD (Connect-go handlers)
 - [x] Hydra OAuth2 連携 (JWT発行はHydra担当)
 - [x] PostgreSQL migrations (`deployments/init-db.sql`)
-- [x] 単体テスト (統合テスト2件残)
+- [x] gRPC → Connect-go 移行完了
+- [x] 単体テスト
 
-<details>
-<summary>📋 詳細タスク進捗 (63/65 完了)</summary>
-
-| フェーズ | 内容 | 状態 |
-|---------|------|------|
-| Phase 0 | Infrastructure Setup | ✅ 完了 |
-| Phase 1 | Core User Management | ✅ 完了 |
-| Phase 2 | Hydra Login Provider | ✅ 完了 |
-| Phase 3 | Hydra Consent Provider | ✅ 完了 |
-| Phase 4 | Cross-Cutting Concerns | ✅ 完了 |
-
-**残タスク:**
-- `[ ]` Repository 統合テスト
-- `[ ]` Phase 1 E2E検証
-</details>
-
-### Phase 2: BFF + JWT検証
-- [ ] Connect-go サーバー構築
-- [ ] JWKS キャッシュ (Redis)
-- [ ] JWT ミドルウェア実装
-- [ ] User Service との gRPC 連携
-- [ ] E2E テスト (認証フロー)
+### Phase 2: BFF + JWT検証 ✅
+- [x] Connect-go サーバー構築
+- [x] JWKS 取得・キャッシュ (Hydra → BFF)
+- [x] JWT ミドルウェア実装 (RS256検証)
+- [x] BOLA保護 (ユーザーIDチェック)
+- [x] Rate Limiting (Token Bucket)
+- [x] User Service との Connect-go 連携
+- [x] E2E テスト (認証フロー)
 
 ### Phase 3: Product Service
 - [ ] 商品 CRUD (gRPC handlers)
