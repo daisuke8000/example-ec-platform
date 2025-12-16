@@ -86,6 +86,7 @@ services:
       - TTL_AUTH_CODE=10m
       - OAUTH2_EXPOSE_INTERNAL_ERRORS=true
       - OAUTH2_HASHERS_BCRYPT_COST=10
+      - STRATEGIES_ACCESS_TOKEN=jwt
       - LOG_LEVEL=debug
       - LOG_FORMAT=json
       - SERVE_PUBLIC_CORS_ENABLED=true

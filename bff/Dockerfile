@@ -7,6 +7,7 @@ RUN apk add --no-cache git
 
 # Copy go.mod files for dependency resolution
 COPY bff/go.mod bff/go.sum ./bff/
+COPY gen/go.mod gen/go.sum ./gen/
 COPY pkg/connect/go.mod pkg/connect/go.sum ./pkg/connect/
 
 # Download dependencies
@@ -16,6 +17,7 @@ RUN go mod download
 # Copy source
 WORKDIR /app
 COPY bff/ ./bff/
+COPY gen/ ./gen/
 COPY pkg/connect/ ./pkg/connect/
 
 # Build
