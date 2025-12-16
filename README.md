@@ -26,7 +26,7 @@ Frontend (SPA)
 | Service | Port | 役割 |
 |---------|------|------|
 | BFF | 8080 | API集約、JWT検証 |
-| User | 50051 | 認証、Hydra Login/Consent Provider |
+| User | 50051 (gRPC) / 8051 (HTTP) | 認証、Hydra Login/Consent Provider |
 | Product | 50052 | 商品CRUD、在庫管理 |
 | Order | 50053 | 注文、永続化カート |
 
@@ -95,12 +95,28 @@ example-ec-platform/
 - [x] Makefile 整備
 - [x] 各サービスのスケルトン作成
 
-### Phase 1: User Service + 認証基盤
-- [ ] Hydra Login/Consent Provider 実装
-- [ ] User CRUD (gRPC handlers)
-- [ ] JWT 発行・検証フロー
-- [ ] PostgreSQL migrations (users スキーマ)
-- [ ] 単体テスト
+### Phase 1: User Service + 認証基盤 🔄 (98% 完了)
+- [x] Hydra Login/Consent Provider 実装
+- [x] User CRUD (gRPC handlers)
+- [x] Hydra OAuth2 連携 (JWT発行はHydra担当)
+- [x] PostgreSQL migrations (`deployments/init-db.sql`)
+- [x] 単体テスト (統合テスト2件残)
+
+<details>
+<summary>📋 詳細タスク進捗 (63/65 完了)</summary>
+
+| フェーズ | 内容 | 状態 |
+|---------|------|------|
+| Phase 0 | Infrastructure Setup | ✅ 完了 |
+| Phase 1 | Core User Management | ✅ 完了 |
+| Phase 2 | Hydra Login Provider | ✅ 完了 |
+| Phase 3 | Hydra Consent Provider | ✅ 完了 |
+| Phase 4 | Cross-Cutting Concerns | ✅ 完了 |
+
+**残タスク:**
+- `[ ]` Repository 統合テスト
+- `[ ]` Phase 1 E2E検証
+</details>
 
 ### Phase 2: BFF + JWT検証
 - [ ] Connect-go サーバー構築
@@ -159,36 +175,54 @@ example-ec-platform/
 ## DB スキーマ設計
 
 ### 共通方針
-- 各サービスは独立スキーマ (`user_schema`, `product_schema`, `order_schema`)
+- 各サービスは独立スキーマ (`user_service`, `product_service`, `order_service`)
 - サービス間の FK 制約なし（疎結合）
 - 全テーブルに `created_at`, `updated_at`, `deleted_at` (論理削除)
 - UUID を主キーに使用
+- 初期化: `deployments/init-db.sql`
 
-### users テーブル (user_schema)
+### users テーブル (user_service)
 ```sql
 id UUID PRIMARY KEY
 email VARCHAR(255) UNIQUE NOT NULL
 password_hash VARCHAR(255) NOT NULL
-name VARCHAR(100)
-created_at, updated_at, deleted_at
+name VARCHAR(255)
+is_deleted BOOLEAN DEFAULT FALSE
+deleted_at TIMESTAMPTZ
+created_at TIMESTAMPTZ DEFAULT NOW()
+updated_at TIMESTAMPTZ DEFAULT NOW()
 ```
 
-### products テーブル (product_schema)
+### products テーブル (product_service)
 ```sql
 id UUID PRIMARY KEY
 name VARCHAR(255) NOT NULL
 description TEXT
 price DECIMAL(10,2) NOT NULL
-stock_quantity INTEGER NOT NULL DEFAULT 0
-created_at, updated_at, deleted_at
+image_url VARCHAR(500)
+is_deleted BOOLEAN DEFAULT FALSE
+deleted_at TIMESTAMPTZ
+created_at TIMESTAMPTZ DEFAULT NOW()
+updated_at TIMESTAMPTZ DEFAULT NOW()
 ```
 
-### orders テーブル (order_schema)
+### inventory テーブル (product_service)
+```sql
+product_id UUID PRIMARY KEY REFERENCES products(id)
+quantity INT NOT NULL DEFAULT 0
+reserved INT NOT NULL DEFAULT 0
+version INT NOT NULL DEFAULT 0
+updated_at TIMESTAMPTZ DEFAULT NOW()
+```
+
+### orders テーブル (order_service)
 ```sql
 id UUID PRIMARY KEY
 user_id UUID NOT NULL  -- FK制約なし、参照のみ
-idempotency_key VARCHAR(64) UNIQUE
-status VARCHAR(20) NOT NULL
+status VARCHAR(50) NOT NULL DEFAULT 'pending'
 total_amount DECIMAL(10,2) NOT NULL
-created_at, updated_at, deleted_at
+shipping_address JSONB
+idempotency_key VARCHAR(255)
+created_at TIMESTAMPTZ DEFAULT NOW()
+updated_at TIMESTAMPTZ DEFAULT NOW()
 ```
