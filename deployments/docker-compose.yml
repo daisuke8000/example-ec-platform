@@ -1,11 +1,12 @@
 # ==============================================================================
 # EC-Platform Infrastructure
 # Development environment with PostgreSQL, Redis, and Ory Hydra
+# Network Isolation: frontend-net / backend-net / data-net
 # ==============================================================================
 
 services:
   # ----------------------------------------------------------------------------
-  # PostgreSQL Database
+  # PostgreSQL Database (data-net only)
   # ----------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
@@ -16,7 +17,7 @@ services:
       POSTGRES_PASSWORD: ecplatform_secret
       POSTGRES_DB: ecplatform
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"  # Local debug only
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
@@ -26,11 +27,10 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - ec-platform-network
+      - data-net
 
   # ----------------------------------------------------------------------------
-  # Redis Cache
-  # Used for: JWKS cache, Idempotency keys, Session cache
+  # Redis Cache (data-net only)
   # ----------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
@@ -38,7 +38,7 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"  # Local debug only
     volumes:
       - redis_data:/data
     healthcheck:
@@ -47,7 +47,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - ec-platform-network
+      - data-net
 
   # ----------------------------------------------------------------------------
   # Ory Hydra - OAuth2 / OpenID Connect Server
@@ -62,7 +62,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - ec-platform-network
+      - data-net
     restart: on-failure
 
   hydra:
@@ -70,14 +70,9 @@ services:
     container_name: ec-platform-hydra
     restart: unless-stopped
     environment:
-      # Database
       - DSN=postgres://ecplatform:ecplatform_secret@postgres:5432/ecplatform?sslmode=disable
-
-      # Secrets (CHANGE IN PRODUCTION!)
       - SECRETS_SYSTEM=CHANGE_ME_IN_PRODUCTION_32_BYTES_MIN
       - SECRETS_COOKIE=CHANGE_ME_COOKIE_SECRET_32_BYTES
-
-      # URLs
       - URLS_SELF_ISSUER=http://localhost:4444
       - URLS_SELF_PUBLIC=http://localhost:4444
       - URLS_LOGIN=http://localhost:8051/oauth2/login
@@ -85,18 +80,13 @@ services:
       - URLS_LOGOUT=http://localhost:8051/oauth2/logout
       - URLS_ERROR=http://localhost:8051/oauth2/error
       - URLS_POST_LOGOUT_REDIRECT=http://localhost:3000
-
-      # Token Configuration
       - TTL_ACCESS_TOKEN=15m
       - TTL_REFRESH_TOKEN=168h
       - TTL_ID_TOKEN=1h
       - TTL_AUTH_CODE=10m
-
-      # OAuth2 Settings
       - OAUTH2_EXPOSE_INTERNAL_ERRORS=true
       - OAUTH2_HASHERS_BCRYPT_COST=10
-
-      # Development settings (disable in production)
+      - STRATEGIES_ACCESS_TOKEN=jwt
       - LOG_LEVEL=debug
       - LOG_FORMAT=json
       - SERVE_PUBLIC_CORS_ENABLED=true
@@ -106,8 +96,8 @@ services:
       - SERVE_ADMIN_CORS_ENABLED=true
     command: serve all --dev
     ports:
-      - "4444:4444"  # Public API (OAuth2 flows, JWKS, userinfo)
-      - "4445:4445"  # Admin API (client management, consent handling)
+      - "4444:4444"  # Public API (OAuth2 flows, JWKS) - browser access needed
+      # 4445 (Admin) - internal only, no external exposure
     volumes:
       - ./hydra/hydra.yml:/etc/config/hydra/hydra.yml:ro
     depends_on:
@@ -121,7 +111,86 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - ec-platform-network
+      - backend-net
+      - data-net
+
+  # ----------------------------------------------------------------------------
+  # BFF (Backend For Frontend) - Only externally accessible service
+  # ----------------------------------------------------------------------------
+  bff:
+    build:
+      context: ..
+      dockerfile: bff/Dockerfile
+    container_name: ec-platform-bff
+    restart: unless-stopped
+    environment:
+      - BFF_PORT=8080
+      - LOG_LEVEL=debug
+      - HYDRA_ISSUER_URL=http://localhost:4444
+      - HYDRA_JWKS_URL=http://hydra:4444/.well-known/jwks.json
+      - JWT_AUDIENCE=bff-client
+      - JWT_CLOCK_SKEW=30s
+      - JWKS_REFRESH_INTERVAL=1h
+      - JWKS_MIN_REFRESH_INTERVAL=10s
+      - AUTH_RATE_LIMIT_FAILURES=10
+      - AUTH_RATE_LIMIT_WINDOW=1m
+      - AUTH_RATE_LIMIT_COOLDOWN=5m
+      - AUTH_RATE_LIMIT_ENABLED=true
+      - PUBLIC_ENDPOINTS=/health,/ready,/user.v1.UserService/CreateUser
+      - METRICS_ENABLED=true
+      - OTEL_SERVICE_NAME=bff
+      - OTEL_SERVICE_VERSION=dev
+      # Backend service URLs (internal network)
+      - USER_SERVICE_URL=http://user-service:50051
+    ports:
+      - "8080:8080"  # External access point
+    depends_on:
+      hydra:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - frontend-net
+      - backend-net
+
+  # ----------------------------------------------------------------------------
+  # User Service (backend-net + data-net only, no external access)
+  # ----------------------------------------------------------------------------
+  user-service:
+    build:
+      context: ..
+      dockerfile: services/user/Dockerfile
+    container_name: ec-platform-user-service
+    restart: unless-stopped
+    environment:
+      - GRPC_PORT=50051
+      - HTTP_PORT=8051
+      - DATABASE_URL=postgres://ecplatform:ecplatform_secret@postgres:5432/ecplatform?sslmode=disable
+      - REDIS_URL=redis://redis:6379
+      - HYDRA_ADMIN_URL=http://hydra:4445
+      - BCRYPT_COST=10
+      - TRUSTED_ORIGINS=http://localhost:3000,http://localhost:5173
+    ports:
+      - "127.0.0.1:8051:8051"  # OAuth2 UI - local browser access only
+      # 50051 (gRPC) - internal only, accessed via backend-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      hydra:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:50051/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend-net
+      - data-net
 
 # ------------------------------------------------------------------------------
 # Volumes
@@ -133,8 +202,15 @@ volumes:
     driver: local
 
 # ------------------------------------------------------------------------------
-# Networks
+# Networks (3-tier isolation)
 # ------------------------------------------------------------------------------
 networks:
-  ec-platform-network:
+  frontend-net:
     driver: bridge
+    # Host <-> BFF only
+  backend-net:
+    driver: bridge
+    # BFF <-> Services, Hydra
+  data-net:
+    driver: bridge
+    # Services <-> DB/Redis

@@ -1,17 +1,20 @@
-package grpc
+package connect
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/google/uuid"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
-	pb "github.com/daisuke8000/example-ec-platform/gen/user/v1"
+	v1 "github.com/daisuke8000/example-ec-platform/gen/user/v1"
+	"github.com/daisuke8000/example-ec-platform/gen/user/v1/userv1connect"
 	"github.com/daisuke8000/example-ec-platform/services/user/internal/domain"
 	"github.com/daisuke8000/example-ec-platform/services/user/internal/usecase"
 )
@@ -60,9 +63,18 @@ func (m *mockUserUseCase) VerifyPassword(ctx context.Context, email, password st
 	return nil, nil
 }
 
-func newTestHandler(uc *mockUserUseCase) *UserServiceHandler {
+func newTestServer(uc *mockUserUseCase) (*httptest.Server, userv1connect.UserServiceClient) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	return NewUserServiceHandler(uc, logger)
+	handler := NewUserServiceHandler(uc, logger)
+
+	mux := http.NewServeMux()
+	path, h := userv1connect.NewUserServiceHandler(handler)
+	mux.Handle(path, h)
+
+	server := httptest.NewServer(mux)
+	client := userv1connect.NewUserServiceClient(http.DefaultClient, server.URL)
+
+	return server, client
 }
 
 func TestCreateUser(t *testing.T) {
@@ -71,13 +83,13 @@ func TestCreateUser(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		req      *pb.CreateUserRequest
+		req      *v1.CreateUserRequest
 		mockFn   func(ctx context.Context, input usecase.CreateUserInput) (*domain.User, error)
-		wantCode codes.Code
+		wantCode connect.Code
 	}{
 		{
 			name: "creates user successfully",
-			req: &pb.CreateUserRequest{
+			req: &v1.CreateUserRequest{
 				Email:    "test@example.com",
 				Password: "password123",
 				Name:     &name,
@@ -85,56 +97,57 @@ func TestCreateUser(t *testing.T) {
 			mockFn: func(ctx context.Context, input usecase.CreateUserInput) (*domain.User, error) {
 				return testUser, nil
 			},
-			wantCode: codes.OK,
+			wantCode: 0, // No error
 		},
 		{
 			name: "returns already exists for duplicate email",
-			req: &pb.CreateUserRequest{
+			req: &v1.CreateUserRequest{
 				Email:    "test@example.com",
 				Password: "password123",
 			},
 			mockFn: func(ctx context.Context, input usecase.CreateUserInput) (*domain.User, error) {
 				return nil, domain.ErrEmailAlreadyExists
 			},
-			wantCode: codes.AlreadyExists,
+			wantCode: connect.CodeAlreadyExists,
 		},
 		{
 			name: "returns invalid argument for invalid email",
-			req: &pb.CreateUserRequest{
+			req: &v1.CreateUserRequest{
 				Email:    "invalid",
 				Password: "password123",
 			},
 			mockFn: func(ctx context.Context, input usecase.CreateUserInput) (*domain.User, error) {
 				return nil, domain.ErrInvalidEmail
 			},
-			wantCode: codes.InvalidArgument,
+			wantCode: connect.CodeInvalidArgument,
 		},
 		{
 			name: "returns invalid argument for short password",
-			req: &pb.CreateUserRequest{
+			req: &v1.CreateUserRequest{
 				Email:    "test@example.com",
 				Password: "short",
 			},
 			mockFn: func(ctx context.Context, input usecase.CreateUserInput) (*domain.User, error) {
 				return nil, domain.ErrPasswordTooShort
 			},
-			wantCode: codes.InvalidArgument,
+			wantCode: connect.CodeInvalidArgument,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockUserUseCase{createUserFn: tt.mockFn}
-			handler := newTestHandler(mock)
+			server, client := newTestServer(mock)
+			defer server.Close()
 
-			resp, err := handler.CreateUser(context.Background(), tt.req)
+			resp, err := client.CreateUser(context.Background(), connect.NewRequest(tt.req))
 
-			if tt.wantCode == codes.OK {
+			if tt.wantCode == 0 {
 				if err != nil {
 					t.Errorf("CreateUser() error = %v, want nil", err)
 					return
 				}
-				if resp.GetUser() == nil {
+				if resp.Msg.GetUser() == nil {
 					t.Error("CreateUser() returned nil user")
 				}
 			} else {
@@ -142,13 +155,13 @@ func TestCreateUser(t *testing.T) {
 					t.Error("CreateUser() expected error, got nil")
 					return
 				}
-				st, ok := status.FromError(err)
-				if !ok {
-					t.Errorf("CreateUser() error is not a gRPC status error: %v", err)
+				var connectErr *connect.Error
+				if !errors.As(err, &connectErr) {
+					t.Errorf("CreateUser() error is not a Connect error: %v", err)
 					return
 				}
-				if st.Code() != tt.wantCode {
-					t.Errorf("CreateUser() error code = %v, want %v", st.Code(), tt.wantCode)
+				if connectErr.Code() != tt.wantCode {
+					t.Errorf("CreateUser() error code = %v, want %v", connectErr.Code(), tt.wantCode)
 				}
 			}
 		})
@@ -160,52 +173,53 @@ func TestGetUser(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		req      *pb.GetUserRequest
+		req      *v1.GetUserRequest
 		mockFn   func(ctx context.Context, id uuid.UUID) (*domain.User, error)
-		wantCode codes.Code
+		wantCode connect.Code
 	}{
 		{
 			name: "gets user successfully",
-			req: &pb.GetUserRequest{
+			req: &v1.GetUserRequest{
 				Id: testUser.ID.String(),
 			},
 			mockFn: func(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 				return testUser, nil
 			},
-			wantCode: codes.OK,
+			wantCode: 0,
 		},
 		{
 			name: "returns not found for non-existent user",
-			req: &pb.GetUserRequest{
+			req: &v1.GetUserRequest{
 				Id: uuid.New().String(),
 			},
 			mockFn: func(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 				return nil, domain.ErrUserNotFound
 			},
-			wantCode: codes.NotFound,
+			wantCode: connect.CodeNotFound,
 		},
 		{
 			name: "returns invalid argument for invalid UUID",
-			req: &pb.GetUserRequest{
+			req: &v1.GetUserRequest{
 				Id: "invalid-uuid",
 			},
-			wantCode: codes.InvalidArgument,
+			wantCode: connect.CodeInvalidArgument,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockUserUseCase{getUserFn: tt.mockFn}
-			handler := newTestHandler(mock)
+			server, client := newTestServer(mock)
+			defer server.Close()
 
-			resp, err := handler.GetUser(context.Background(), tt.req)
+			resp, err := client.GetUser(context.Background(), connect.NewRequest(tt.req))
 
-			if tt.wantCode == codes.OK {
+			if tt.wantCode == 0 {
 				if err != nil {
 					t.Errorf("GetUser() error = %v, want nil", err)
 					return
 				}
-				if resp.GetUser() == nil {
+				if resp.Msg.GetUser() == nil {
 					t.Error("GetUser() returned nil user")
 				}
 			} else {
@@ -213,9 +227,13 @@ func TestGetUser(t *testing.T) {
 					t.Error("GetUser() expected error, got nil")
 					return
 				}
-				st, _ := status.FromError(err)
-				if st.Code() != tt.wantCode {
-					t.Errorf("GetUser() error code = %v, want %v", st.Code(), tt.wantCode)
+				var connectErr *connect.Error
+				if !errors.As(err, &connectErr) {
+					t.Errorf("GetUser() error is not a Connect error: %v", err)
+					return
+				}
+				if connectErr.Code() != tt.wantCode {
+					t.Errorf("GetUser() error code = %v, want %v", connectErr.Code(), tt.wantCode)
 				}
 			}
 		})
@@ -229,13 +247,13 @@ func TestUpdateUser(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		req      *pb.UpdateUserRequest
+		req      *v1.UpdateUserRequest
 		mockFn   func(ctx context.Context, id uuid.UUID, input usecase.UpdateUserInput) (*domain.User, error)
-		wantCode codes.Code
+		wantCode connect.Code
 	}{
 		{
 			name: "updates user successfully",
-			req: &pb.UpdateUserRequest{
+			req: &v1.UpdateUserRequest{
 				Id:    testUser.ID.String(),
 				Email: &newEmail,
 				Name:  &newName,
@@ -245,45 +263,46 @@ func TestUpdateUser(t *testing.T) {
 				testUser.Name = input.Name
 				return testUser, nil
 			},
-			wantCode: codes.OK,
+			wantCode: 0,
 		},
 		{
 			name: "returns not found for non-existent user",
-			req: &pb.UpdateUserRequest{
+			req: &v1.UpdateUserRequest{
 				Id:   uuid.New().String(),
 				Name: &newName,
 			},
 			mockFn: func(ctx context.Context, id uuid.UUID, input usecase.UpdateUserInput) (*domain.User, error) {
 				return nil, domain.ErrUserNotFound
 			},
-			wantCode: codes.NotFound,
+			wantCode: connect.CodeNotFound,
 		},
 		{
 			name: "returns already exists for duplicate email",
-			req: &pb.UpdateUserRequest{
+			req: &v1.UpdateUserRequest{
 				Id:    testUser.ID.String(),
 				Email: &newEmail,
 			},
 			mockFn: func(ctx context.Context, id uuid.UUID, input usecase.UpdateUserInput) (*domain.User, error) {
 				return nil, domain.ErrEmailAlreadyExists
 			},
-			wantCode: codes.AlreadyExists,
+			wantCode: connect.CodeAlreadyExists,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockUserUseCase{updateUserFn: tt.mockFn}
-			handler := newTestHandler(mock)
+			server, client := newTestServer(mock)
+			defer server.Close()
 
-			resp, err := handler.UpdateUser(context.Background(), tt.req)
+			resp, err := client.UpdateUser(context.Background(), connect.NewRequest(tt.req))
 
-			if tt.wantCode == codes.OK {
+			if tt.wantCode == 0 {
 				if err != nil {
 					t.Errorf("UpdateUser() error = %v, want nil", err)
 					return
 				}
-				if resp.GetUser() == nil {
+				if resp.Msg.GetUser() == nil {
 					t.Error("UpdateUser() returned nil user")
 				}
 			} else {
@@ -291,9 +310,13 @@ func TestUpdateUser(t *testing.T) {
 					t.Error("UpdateUser() expected error, got nil")
 					return
 				}
-				st, _ := status.FromError(err)
-				if st.Code() != tt.wantCode {
-					t.Errorf("UpdateUser() error code = %v, want %v", st.Code(), tt.wantCode)
+				var connectErr *connect.Error
+				if !errors.As(err, &connectErr) {
+					t.Errorf("UpdateUser() error is not a Connect error: %v", err)
+					return
+				}
+				if connectErr.Code() != tt.wantCode {
+					t.Errorf("UpdateUser() error code = %v, want %v", connectErr.Code(), tt.wantCode)
 				}
 			}
 		})
@@ -305,40 +328,41 @@ func TestDeleteUser(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		req      *pb.DeleteUserRequest
+		req      *v1.DeleteUserRequest
 		mockFn   func(ctx context.Context, id uuid.UUID) error
-		wantCode codes.Code
+		wantCode connect.Code
 	}{
 		{
 			name: "deletes user successfully",
-			req: &pb.DeleteUserRequest{
+			req: &v1.DeleteUserRequest{
 				Id: testUser.ID.String(),
 			},
 			mockFn: func(ctx context.Context, id uuid.UUID) error {
 				return nil
 			},
-			wantCode: codes.OK,
+			wantCode: 0,
 		},
 		{
 			name: "returns not found for non-existent user",
-			req: &pb.DeleteUserRequest{
+			req: &v1.DeleteUserRequest{
 				Id: uuid.New().String(),
 			},
 			mockFn: func(ctx context.Context, id uuid.UUID) error {
 				return domain.ErrUserNotFound
 			},
-			wantCode: codes.NotFound,
+			wantCode: connect.CodeNotFound,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockUserUseCase{deleteUserFn: tt.mockFn}
-			handler := newTestHandler(mock)
+			server, client := newTestServer(mock)
+			defer server.Close()
 
-			_, err := handler.DeleteUser(context.Background(), tt.req)
+			_, err := client.DeleteUser(context.Background(), connect.NewRequest(tt.req))
 
-			if tt.wantCode == codes.OK {
+			if tt.wantCode == 0 {
 				if err != nil {
 					t.Errorf("DeleteUser() error = %v, want nil", err)
 				}
@@ -347,9 +371,13 @@ func TestDeleteUser(t *testing.T) {
 					t.Error("DeleteUser() expected error, got nil")
 					return
 				}
-				st, _ := status.FromError(err)
-				if st.Code() != tt.wantCode {
-					t.Errorf("DeleteUser() error code = %v, want %v", st.Code(), tt.wantCode)
+				var connectErr *connect.Error
+				if !errors.As(err, &connectErr) {
+					t.Errorf("DeleteUser() error is not a Connect error: %v", err)
+					return
+				}
+				if connectErr.Code() != tt.wantCode {
+					t.Errorf("DeleteUser() error code = %v, want %v", connectErr.Code(), tt.wantCode)
 				}
 			}
 		})
@@ -361,47 +389,59 @@ func TestVerifyPassword(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		req      *pb.VerifyPasswordRequest
+		req      *v1.VerifyPasswordRequest
 		mockFn   func(ctx context.Context, email, password string) (*domain.User, error)
-		wantCode codes.Code
+		wantCode connect.Code
 	}{
 		{
 			name: "verifies password successfully",
-			req: &pb.VerifyPasswordRequest{
+			req: &v1.VerifyPasswordRequest{
 				Email:    "test@example.com",
 				Password: "password123",
 			},
 			mockFn: func(ctx context.Context, email, password string) (*domain.User, error) {
 				return testUser, nil
 			},
-			wantCode: codes.OK,
+			wantCode: 0,
 		},
 		{
 			name: "returns unauthenticated for invalid credentials",
-			req: &pb.VerifyPasswordRequest{
+			req: &v1.VerifyPasswordRequest{
 				Email:    "test@example.com",
 				Password: "wrongpassword",
 			},
 			mockFn: func(ctx context.Context, email, password string) (*domain.User, error) {
 				return nil, domain.ErrInvalidCredentials
 			},
-			wantCode: codes.Unauthenticated,
+			wantCode: connect.CodeUnauthenticated,
+		},
+		{
+			name: "returns unauthenticated for non-existent user (prevents enumeration)",
+			req: &v1.VerifyPasswordRequest{
+				Email:    "nonexistent@example.com",
+				Password: "password123",
+			},
+			mockFn: func(ctx context.Context, email, password string) (*domain.User, error) {
+				return nil, domain.ErrUserNotFound
+			},
+			wantCode: connect.CodeUnauthenticated,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockUserUseCase{verifyPasswordFn: tt.mockFn}
-			handler := newTestHandler(mock)
+			server, client := newTestServer(mock)
+			defer server.Close()
 
-			resp, err := handler.VerifyPassword(context.Background(), tt.req)
+			resp, err := client.VerifyPassword(context.Background(), connect.NewRequest(tt.req))
 
-			if tt.wantCode == codes.OK {
+			if tt.wantCode == 0 {
 				if err != nil {
 					t.Errorf("VerifyPassword() error = %v, want nil", err)
 					return
 				}
-				if resp.GetUserId() == "" {
+				if resp.Msg.GetUserId() == "" {
 					t.Error("VerifyPassword() returned empty user_id")
 				}
 			} else {
@@ -409,9 +449,13 @@ func TestVerifyPassword(t *testing.T) {
 					t.Error("VerifyPassword() expected error, got nil")
 					return
 				}
-				st, _ := status.FromError(err)
-				if st.Code() != tt.wantCode {
-					t.Errorf("VerifyPassword() error code = %v, want %v", st.Code(), tt.wantCode)
+				var connectErr *connect.Error
+				if !errors.As(err, &connectErr) {
+					t.Errorf("VerifyPassword() error is not a Connect error: %v", err)
+					return
+				}
+				if connectErr.Code() != tt.wantCode {
+					t.Errorf("VerifyPassword() error code = %v, want %v", connectErr.Code(), tt.wantCode)
 				}
 			}
 		})

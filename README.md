@@ -23,12 +23,12 @@ Frontend (SPA)
 
 ## サービス構成
 
-| Service | Port | 役割 |
-|---------|------|------|
-| BFF | 8080 | API集約、JWT検証 |
-| User | 50051 | 認証、Hydra Login/Consent Provider |
-| Product | 50052 | 商品CRUD、在庫管理 |
-| Order | 50053 | 注文、永続化カート |
+| Service | Port | Protocol | 役割 |
+|---------|------|----------|------|
+| BFF | 8080 | Connect-go (HTTP/2) | API集約、JWT検証、BOLA保護 |
+| User | 50051 (Connect) / 8051 (HTTP) | Connect-go | ユーザー管理、Hydra Login/Consent Provider |
+| Product | 50052 | gRPC | 商品CRUD、在庫管理 |
+| Order | 50053 | gRPC | 注文、永続化カート |
 
 ## 技術スタック
 
@@ -68,6 +68,29 @@ make deps
 - **セキュリティ**: BOLA対策（全クエリでuser_id絞り込み）
 - **冪等性**: Order ServiceのCreateOrderに冪等性キー実装
 
+## E2Eテスト結果
+
+```bash
+# ヘルスチェック
+GET /health → 200 OK
+GET /ready  → 200 Ready
+
+# ユーザー作成（公開エンドポイント）
+POST /user.v1.UserService/CreateUser → 200 (user created)
+
+# 認証テスト
+POST /GetUser (認証なし)           → 401 Unauthenticated
+POST /GetUser (不正トークン)        → 401 Unauthenticated
+POST /GetUser (有効JWT, 自分のID)   → 404 Not Found (BOLA pass)
+POST /GetUser (有効JWT, 他人のID)   → 403 Permission Denied (BOLA block)
+```
+
+### BOLA保護の動作確認
+| 条件 | 結果 |
+|------|------|
+| JWT subject = リクエストID | ✅ 認可成功 |
+| JWT subject ≠ リクエストID | ❌ 403拒否 |
+
 ## ディレクトリ構造
 
 ```
@@ -95,19 +118,22 @@ example-ec-platform/
 - [x] Makefile 整備
 - [x] 各サービスのスケルトン作成
 
-### Phase 1: User Service + 認証基盤
-- [ ] Hydra Login/Consent Provider 実装
-- [ ] User CRUD (gRPC handlers)
-- [ ] JWT 発行・検証フロー
-- [ ] PostgreSQL migrations (users スキーマ)
-- [ ] 単体テスト
+### Phase 1: User Service + 認証基盤 ✅
+- [x] Hydra Login/Consent Provider 実装
+- [x] User CRUD (Connect-go handlers)
+- [x] Hydra OAuth2 連携 (JWT発行はHydra担当)
+- [x] PostgreSQL migrations (`deployments/init-db.sql`)
+- [x] gRPC → Connect-go 移行完了
+- [x] 単体テスト
 
-### Phase 2: BFF + JWT検証
-- [ ] Connect-go サーバー構築
-- [ ] JWKS キャッシュ (Redis)
-- [ ] JWT ミドルウェア実装
-- [ ] User Service との gRPC 連携
-- [ ] E2E テスト (認証フロー)
+### Phase 2: BFF + JWT検証 ✅
+- [x] Connect-go サーバー構築
+- [x] JWKS 取得・キャッシュ (Hydra → BFF)
+- [x] JWT ミドルウェア実装 (RS256検証)
+- [x] BOLA保護 (ユーザーIDチェック)
+- [x] Rate Limiting (Token Bucket)
+- [x] User Service との Connect-go 連携
+- [x] E2E テスト (認証フロー)
 
 ### Phase 3: Product Service
 - [ ] 商品 CRUD (gRPC handlers)
@@ -159,36 +185,54 @@ example-ec-platform/
 ## DB スキーマ設計
 
 ### 共通方針
-- 各サービスは独立スキーマ (`user_schema`, `product_schema`, `order_schema`)
+- 各サービスは独立スキーマ (`user_service`, `product_service`, `order_service`)
 - サービス間の FK 制約なし（疎結合）
 - 全テーブルに `created_at`, `updated_at`, `deleted_at` (論理削除)
 - UUID を主キーに使用
+- 初期化: `deployments/init-db.sql`
 
-### users テーブル (user_schema)
+### users テーブル (user_service)
 ```sql
 id UUID PRIMARY KEY
 email VARCHAR(255) UNIQUE NOT NULL
 password_hash VARCHAR(255) NOT NULL
-name VARCHAR(100)
-created_at, updated_at, deleted_at
+name VARCHAR(255)
+is_deleted BOOLEAN DEFAULT FALSE
+deleted_at TIMESTAMPTZ
+created_at TIMESTAMPTZ DEFAULT NOW()
+updated_at TIMESTAMPTZ DEFAULT NOW()
 ```
 
-### products テーブル (product_schema)
+### products テーブル (product_service)
 ```sql
 id UUID PRIMARY KEY
 name VARCHAR(255) NOT NULL
 description TEXT
 price DECIMAL(10,2) NOT NULL
-stock_quantity INTEGER NOT NULL DEFAULT 0
-created_at, updated_at, deleted_at
+image_url VARCHAR(500)
+is_deleted BOOLEAN DEFAULT FALSE
+deleted_at TIMESTAMPTZ
+created_at TIMESTAMPTZ DEFAULT NOW()
+updated_at TIMESTAMPTZ DEFAULT NOW()
 ```
 
-### orders テーブル (order_schema)
+### inventory テーブル (product_service)
+```sql
+product_id UUID PRIMARY KEY REFERENCES products(id)
+quantity INT NOT NULL DEFAULT 0
+reserved INT NOT NULL DEFAULT 0
+version INT NOT NULL DEFAULT 0
+updated_at TIMESTAMPTZ DEFAULT NOW()
+```
+
+### orders テーブル (order_service)
 ```sql
 id UUID PRIMARY KEY
 user_id UUID NOT NULL  -- FK制約なし、参照のみ
-idempotency_key VARCHAR(64) UNIQUE
-status VARCHAR(20) NOT NULL
+status VARCHAR(50) NOT NULL DEFAULT 'pending'
 total_amount DECIMAL(10,2) NOT NULL
-created_at, updated_at, deleted_at
+shipping_address JSONB
+idempotency_key VARCHAR(255)
+created_at TIMESTAMPTZ DEFAULT NOW()
+updated_at TIMESTAMPTZ DEFAULT NOW()
 ```

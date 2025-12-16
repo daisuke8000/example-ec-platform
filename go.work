@@ -3,6 +3,7 @@ go 1.25
 use (
 	./bff
 	./gen
+	./pkg/connect
 	./services/order
 	./services/product
 	./services/user

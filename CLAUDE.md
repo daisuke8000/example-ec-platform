@@ -120,5 +120,6 @@ Copy `.env.example` to `.env` for local development. Key variables:
 | Feature | Phase | Status |
 |---------|-------|--------|
 | `user-service-hydra-auth` | initialized | Awaiting requirements generation |
+| `bff-jwt-verification` | initialized | BFF JWT validation middleware with JWKS caching |
 
 Use `/kiro:spec-status <feature-name>` to check detailed progress.

@@ -85,7 +85,9 @@ func NewCrossOriginProtection(trustedOrigins []string) *http.CrossOriginProtecti
 	}
 	// Allow GET endpoints without CSRF protection (they don't change state)
 	corp.AddInsecureBypassPattern("GET /")
-	corp.AddInsecureBypassPattern("/health")
+	corp.AddInsecureBypassPattern("GET /health")
+	corp.AddInsecureBypassPattern("GET /healthz")
+	corp.AddInsecureBypassPattern("GET /readyz")
 	return corp
 }
 
