@@ -65,11 +65,11 @@ urls:
     issuer: http://localhost:4444
     public: http://localhost:4444
 
-  # Login/Consent Provider (User Service handles these)
-  login: http://localhost:50051/oauth2/login
-  consent: http://localhost:50051/oauth2/consent
-  logout: http://localhost:50051/oauth2/logout
-  error: http://localhost:50051/oauth2/error
+  # Login/Consent Provider (User Service handles these on HTTP port 8051)
+  login: http://localhost:8051/oauth2/login
+  consent: http://localhost:8051/oauth2/consent
+  logout: http://localhost:8051/oauth2/logout
+  error: http://localhost:8051/oauth2/error
   post_logout_redirect: http://localhost:3000
 
 # ------------------------------------------------------------------------------
