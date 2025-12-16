@@ -136,7 +136,7 @@ services:
       - AUTH_RATE_LIMIT_WINDOW=1m
       - AUTH_RATE_LIMIT_COOLDOWN=5m
       - AUTH_RATE_LIMIT_ENABLED=true
-      - PUBLIC_ENDPOINTS=/health,/ready
+      - PUBLIC_ENDPOINTS=/health,/ready,/user.v1.UserService/CreateUser
       - METRICS_ENABLED=true
       - OTEL_SERVICE_NAME=bff
       - OTEL_SERVICE_VERSION=dev
