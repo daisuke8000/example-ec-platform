@@ -7,6 +7,8 @@ syntax = "proto3";
 
 package user.v1;
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/daisuke8000/example-ec-platform/gen/user/v1;userv1";
 
 // UserService provides user management operations for internal services.
@@ -107,20 +109,10 @@ message VerifyPasswordResponse {
 }
 
 // User represents a platform user's public profile data.
-// Note: password_hash is never exposed in this message.
 message User {
-  // Unique identifier (UUID format).
   string id = 1;
-
-  // Email address (unique among active users).
   string email = 2;
-
-  // Optional display name.
   optional string name = 3;
-
-  // Account creation timestamp (RFC3339 format).
-  string created_at = 4;
-
-  // Last update timestamp (RFC3339 format).
-  string updated_at = 5;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
 }
