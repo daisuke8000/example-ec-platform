@@ -3,24 +3,25 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/health"
-	"google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/reflection"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
-	pb "github.com/daisuke8000/example-ec-platform/gen/user/v1"
-	grpcHandler "github.com/daisuke8000/example-ec-platform/services/user/internal/adapter/grpc"
-	"github.com/daisuke8000/example-ec-platform/services/user/internal/adapter/http"
+	"github.com/daisuke8000/example-ec-platform/gen/user/v1/userv1connect"
+	pkgmiddleware "github.com/daisuke8000/example-ec-platform/pkg/connect/middleware"
+	connectHandler "github.com/daisuke8000/example-ec-platform/services/user/internal/adapter/connect"
+	httpAdapter "github.com/daisuke8000/example-ec-platform/services/user/internal/adapter/http"
 	"github.com/daisuke8000/example-ec-platform/services/user/internal/adapter/hydra"
 	"github.com/daisuke8000/example-ec-platform/services/user/internal/adapter/ratelimit"
 	"github.com/daisuke8000/example-ec-platform/services/user/internal/adapter/repository"
@@ -72,10 +73,10 @@ func run(logger *slog.Logger) error {
 	// Wire dependencies
 	userRepo := repository.NewPostgresUserRepository(pool)
 	userUseCase := usecase.NewUserUseCase(userRepo, cfg.BcryptCost)
-	userHandler := grpcHandler.NewUserServiceHandler(userUseCase, logger)
+	userHandler := connectHandler.NewUserServiceHandler(userUseCase, logger)
 
 	// Initialize Redis client for rate limiting (optional - graceful fallback if unavailable)
-	var rateLimiter http.RateLimiter
+	var rateLimiter httpAdapter.RateLimiter
 	if cfg.RedisURL != "" {
 		redisOpts, err := redis.ParseURL(cfg.RedisURL)
 		if err != nil {
@@ -101,7 +102,7 @@ func run(logger *slog.Logger) error {
 	logger.Info("Hydra client initialized", slog.String("admin_url", cfg.HydraAdminURL))
 
 	// Create HTTP handler for OAuth2 UI
-	httpHandler, err := http.NewHandler(hydraClient, userUseCase, rateLimiter, logger, http.HandlerConfig{
+	oauth2Handler, err := httpAdapter.NewHandler(hydraClient, userUseCase, rateLimiter, logger, httpAdapter.HandlerConfig{
 		LoginRememberFor:   cfg.LoginRememberFor,
 		ConsentRememberFor: cfg.ConsentRememberFor,
 	})
@@ -109,59 +110,68 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("failed to create HTTP handler: %w", err)
 	}
 
-	// Create HTTP server with security middleware
-	corp := http.NewCrossOriginProtection(cfg.TrustedOrigins)
-	httpServerCfg := http.DefaultConfig(cfg.HTTPPort)
-	httpServer := http.NewServer(
-		corp.Handler(
-			http.SecurityHeadersMiddleware(
-				http.LoggingMiddleware(logger)(httpHandler.Router()),
-			),
-		),
-		httpServerCfg,
-		logger,
+	// Create Connect-go interceptors
+	interceptors := connect.WithInterceptors(
+		pkgmiddleware.ServerPropagatorInterceptor(),
+		pkgmiddleware.LoggingInterceptor(logger),
 	)
 
-	// Create gRPC server
-	grpcServer := grpc.NewServer()
+	// Create Connect-go handler
+	path, handler := userv1connect.NewUserServiceHandler(userHandler, interceptors)
 
-	// Register services
-	pb.RegisterUserServiceServer(grpcServer, userHandler)
+	// Create combined HTTP mux
+	mux := http.NewServeMux()
 
-	// Register health check service
-	healthServer := health.NewServer()
-	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
-	healthServer.SetServingStatus("user.v1.UserService", grpc_health_v1.HealthCheckResponse_SERVING)
+	// Mount Connect-go handler (handles /user.v1.UserService/*)
+	mux.Handle(path, handler)
 
-	// Enable server reflection for development
-	reflection.Register(grpcServer)
+	// Mount OAuth2 handlers (handles /oauth2/*, /health)
+	mux.Handle("/oauth2/", oauth2Handler.Router())
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 
-	// Start gRPC server
+	// Add health check endpoint for Connect-go service (Kubernetes compatible)
+	mux.HandleFunc("/healthz", handleHealthz)
+	mux.HandleFunc("/readyz", handleReadyz(pool))
+
+	// Apply cross-origin protection and security headers
+	corp := httpAdapter.NewCrossOriginProtection(cfg.TrustedOrigins)
+	wrappedHandler := corp.Handler(
+		httpAdapter.SecurityHeadersMiddleware(
+			httpAdapter.LoggingMiddleware(logger)(mux),
+		),
+	)
+
+	// Create HTTP server with h2c (HTTP/2 over cleartext) support
+	// This enables HTTP/2 without TLS for gRPC compatibility
 	grpcAddr := fmt.Sprintf(":%d", cfg.GRPCPort)
-	grpcListener, err := net.Listen("tcp", grpcAddr)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", grpcAddr, err)
+	server := &http.Server{
+		Addr: grpcAddr,
+		Handler: h2c.NewHandler(
+			wrappedHandler,
+			&http2.Server{},
+		),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// Handle shutdown signals
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 1)
 
-	// Start gRPC server in goroutine
+	// Start server
 	go func() {
-		logger.Info("gRPC server starting", slog.String("address", grpcAddr))
-		if err := grpcServer.Serve(grpcListener); err != nil {
-			errCh <- fmt.Errorf("gRPC server error: %w", err)
-		}
-	}()
-
-	// Start HTTP server in goroutine
-	go func() {
-		if err := httpServer.Start(); err != nil {
-			errCh <- err
+		logger.Info("Connect-go server starting",
+			slog.String("address", grpcAddr),
+			slog.String("protocols", "Connect, gRPC, gRPC-Web, HTTP/1.1, HTTP/2"),
+		)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- fmt.Errorf("server error: %w", err)
 		}
 	}()
 
@@ -180,16 +190,42 @@ func run(logger *slog.Logger) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Shutdown HTTP server first (quick)
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		logger.Error("HTTP server shutdown error", slog.String("error", err.Error()))
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logger.Error("server shutdown error", slog.String("error", err.Error()))
 	} else {
-		logger.Info("HTTP server stopped")
+		logger.Info("server stopped")
 	}
 
-	// Gracefully stop gRPC server
-	grpcServer.GracefulStop()
-	logger.Info("gRPC server stopped")
-
 	return nil
+}
+
+// handleHealthz returns OK if the service is running (liveness probe).
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "serving",
+	})
+}
+
+// handleReadyz returns OK if the service is ready to accept traffic (readiness probe).
+func handleReadyz(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Check database connectivity
+		if err := pool.Ping(r.Context()); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{
+				"status": "not_ready",
+				"reason": "database connection failed",
+			})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "ready",
+		})
+	}
 }
