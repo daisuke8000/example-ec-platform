@@ -1,0 +1,281 @@
+// ==============================================================================
+// Product Service API
+// gRPC service for product catalog management
+// ==============================================================================
+
+syntax = "proto3";
+
+package product.v1;
+
+import "product/v1/types.proto";
+
+option go_package = "github.com/daisuke8000/example-ec-platform/gen/product/v1;productv1";
+
+// ProductService provides product catalog management operations.
+// This service handles Product, SKU, and Category CRUD operations.
+service ProductService {
+  // ============================================================================
+  // Product Operations
+  // ============================================================================
+
+  // CreateProduct creates a new product in the catalog.
+  // Returns ALREADY_EXISTS if a product with the same name exists in the category.
+  // Returns PERMISSION_DENIED if caller lacks admin role.
+  rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse);
+
+  // GetProduct retrieves a product by ID.
+  // Returns NOT_FOUND if product doesn't exist or is soft-deleted.
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+
+  // UpdateProduct modifies an existing product.
+  // Returns NOT_FOUND if product doesn't exist.
+  // Returns PERMISSION_DENIED if caller lacks admin role.
+  rpc UpdateProduct(UpdateProductRequest) returns (UpdateProductResponse);
+
+  // DeleteProduct performs soft deletion of a product.
+  // Returns NOT_FOUND if product doesn't exist.
+  // Returns FAILED_PRECONDITION if product has pending reservations.
+  // Returns PERMISSION_DENIED if caller lacks admin role.
+  rpc DeleteProduct(DeleteProductRequest) returns (DeleteProductResponse);
+
+  // ListProducts returns a paginated list of products with optional filtering.
+  // Only returns PUBLISHED products for public queries.
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+
+  // ============================================================================
+  // Product Status Operations
+  // ============================================================================
+
+  // PublishProduct changes status from DRAFT or HIDDEN to PUBLISHED.
+  // Returns FAILED_PRECONDITION if current status doesn't allow transition.
+  rpc PublishProduct(PublishProductRequest) returns (PublishProductResponse);
+
+  // HideProduct changes status from PUBLISHED to HIDDEN.
+  // Returns FAILED_PRECONDITION if current status doesn't allow transition.
+  rpc HideProduct(HideProductRequest) returns (HideProductResponse);
+
+  // UnpublishProduct changes status back to DRAFT.
+  // Returns FAILED_PRECONDITION if current status doesn't allow transition.
+  rpc UnpublishProduct(UnpublishProductRequest) returns (UnpublishProductResponse);
+
+  // ============================================================================
+  // SKU Operations
+  // ============================================================================
+
+  // CreateSKU adds a new variant to an existing product.
+  // Returns NOT_FOUND if parent product doesn't exist.
+  // Returns ALREADY_EXISTS if SKU code is already in use.
+  rpc CreateSKU(CreateSKURequest) returns (CreateSKUResponse);
+
+  // GetSKU retrieves a SKU by ID including inventory information.
+  // Returns NOT_FOUND if SKU doesn't exist or is soft-deleted.
+  rpc GetSKU(GetSKURequest) returns (GetSKUResponse);
+
+  // UpdateSKU modifies an existing SKU.
+  // Returns NOT_FOUND if SKU doesn't exist.
+  rpc UpdateSKU(UpdateSKURequest) returns (UpdateSKUResponse);
+
+  // DeleteSKU performs soft deletion of a SKU.
+  // Returns NOT_FOUND if SKU doesn't exist.
+  // Returns FAILED_PRECONDITION if SKU has pending reservations.
+  rpc DeleteSKU(DeleteSKURequest) returns (DeleteSKUResponse);
+
+  // ============================================================================
+  // Category Operations
+  // ============================================================================
+
+  // CreateCategory creates a new category.
+  // Returns ALREADY_EXISTS if category name already exists under same parent.
+  rpc CreateCategory(CreateCategoryRequest) returns (CreateCategoryResponse);
+
+  // GetCategory retrieves a category by ID with parent/child references.
+  // Returns NOT_FOUND if category doesn't exist or is soft-deleted.
+  rpc GetCategory(GetCategoryRequest) returns (GetCategoryResponse);
+
+  // ListCategories returns the full category tree structure.
+  rpc ListCategories(ListCategoriesRequest) returns (ListCategoriesResponse);
+
+  // UpdateCategory modifies an existing category.
+  // Returns NOT_FOUND if category doesn't exist.
+  // Returns FAILED_PRECONDITION if update would create a cycle.
+  rpc UpdateCategory(UpdateCategoryRequest) returns (UpdateCategoryResponse);
+
+  // DeleteCategory performs soft deletion of a category.
+  // Returns FAILED_PRECONDITION if category contains products.
+  rpc DeleteCategory(DeleteCategoryRequest) returns (DeleteCategoryResponse);
+}
+
+// ============================================================================
+// Product Request/Response Messages
+// ============================================================================
+
+message CreateProductRequest {
+  string name = 1;
+  string description = 2;
+  optional string category_id = 3;
+}
+
+message CreateProductResponse {
+  Product product = 1;
+}
+
+message GetProductRequest {
+  string id = 1;
+}
+
+message GetProductResponse {
+  Product product = 1;
+}
+
+message UpdateProductRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional string category_id = 4;
+}
+
+message UpdateProductResponse {
+  Product product = 1;
+}
+
+message DeleteProductRequest {
+  string id = 1;
+}
+
+message DeleteProductResponse {}
+
+message ListProductsRequest {
+  // Pagination
+  int32 page_size = 1;    // Default: 20, Max: 100
+  string page_token = 2;  // Cursor for next page
+
+  // Filters
+  optional string category_id = 3;
+  optional string search_query = 4;  // Full-text search on name and description
+  optional int64 min_price = 5;      // In smallest currency unit
+  optional int64 max_price = 6;      // In smallest currency unit
+  optional ProductStatus status = 7; // Admin only; public queries always get PUBLISHED
+}
+
+message ListProductsResponse {
+  repeated Product products = 1;
+  string next_page_token = 2;
+  // Note: total_count may be an approximate value for large datasets.
+  // For pagination, rely on next_page_token being empty to detect last page.
+  int32 total_count = 3;
+}
+
+// ============================================================================
+// Status Request/Response Messages
+// ============================================================================
+
+message PublishProductRequest {
+  string id = 1;
+}
+
+message PublishProductResponse {
+  Product product = 1;
+}
+
+message HideProductRequest {
+  string id = 1;
+}
+
+message HideProductResponse {
+  Product product = 1;
+}
+
+message UnpublishProductRequest {
+  string id = 1;
+}
+
+message UnpublishProductResponse {
+  Product product = 1;
+}
+
+// ============================================================================
+// SKU Request/Response Messages
+// ============================================================================
+
+message CreateSKURequest {
+  string product_id = 1;
+  string sku_code = 2;
+  Money price = 3;
+  map<string, string> attributes = 4;
+  int64 initial_quantity = 5;  // Initial inventory quantity
+}
+
+message CreateSKUResponse {
+  SKU sku = 1;
+}
+
+message GetSKURequest {
+  string id = 1;
+}
+
+message GetSKUResponse {
+  SKU sku = 1;
+}
+
+message UpdateSKURequest {
+  string id = 1;
+  optional string sku_code = 2;
+  optional Money price = 3;
+  map<string, string> attributes = 4;
+}
+
+message UpdateSKUResponse {
+  SKU sku = 1;
+}
+
+message DeleteSKURequest {
+  string id = 1;
+}
+
+message DeleteSKUResponse {}
+
+// ============================================================================
+// Category Request/Response Messages
+// ============================================================================
+
+message CreateCategoryRequest {
+  string name = 1;
+  optional string parent_id = 2;
+}
+
+message CreateCategoryResponse {
+  Category category = 1;
+}
+
+message GetCategoryRequest {
+  string id = 1;
+}
+
+message GetCategoryResponse {
+  Category category = 1;
+}
+
+message ListCategoriesRequest {
+  // If true, return flat list instead of tree structure
+  bool flat = 1;
+}
+
+message ListCategoriesResponse {
+  repeated Category categories = 1;
+}
+
+message UpdateCategoryRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string parent_id = 3;
+}
+
+message UpdateCategoryResponse {
+  Category category = 1;
+}
+
+message DeleteCategoryRequest {
+  string id = 1;
+}
+
+message DeleteCategoryResponse {}

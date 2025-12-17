@@ -1,0 +1,122 @@
+// ==============================================================================
+// Product Service Shared Types
+// Common messages and enums used across Product and Inventory services
+// ==============================================================================
+
+syntax = "proto3";
+
+package product.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/daisuke8000/example-ec-platform/gen/product/v1;productv1";
+
+// Money represents a monetary value with currency.
+// Amount is in the smallest currency unit (e.g., cents for USD, yen for JPY).
+message Money {
+  int64 amount = 1;
+  string currency_code = 2; // ISO 4217 (e.g., "JPY", "USD")
+}
+
+// ProductStatus represents the lifecycle state of a product.
+// Default for new products is DRAFT.
+enum ProductStatus {
+  PRODUCT_STATUS_UNSPECIFIED = 0;  // Treated as DRAFT when creating new products
+  PRODUCT_STATUS_DRAFT = 1;        // Not visible to customers (default for new products)
+  PRODUCT_STATUS_PUBLISHED = 2;    // Visible in product listings
+  PRODUCT_STATUS_HIDDEN = 3;       // Hidden from listings but accessible for order history
+}
+
+// ReservationStatus represents the state of an inventory reservation.
+enum ReservationStatus {
+  RESERVATION_STATUS_UNSPECIFIED = 0;
+  RESERVATION_STATUS_PENDING = 1;    // Active reservation, awaiting confirmation
+  RESERVATION_STATUS_CONFIRMED = 2;  // Permanently committed (order placed)
+  RESERVATION_STATUS_RELEASED = 3;   // Cancelled, inventory returned
+  RESERVATION_STATUS_EXPIRED = 4;    // TTL exceeded, automatically released
+}
+
+// Product represents a product in the catalog.
+message Product {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string category_id = 4;
+  ProductStatus status = 5;
+  repeated SKU skus = 6;
+  Money min_price = 7;  // Minimum price across all SKUs
+  Money max_price = 8;  // Maximum price across all SKUs
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+// SKU represents a product variant (Stock Keeping Unit).
+message SKU {
+  string id = 1;
+  string product_id = 2;
+  string sku_code = 3;    // Unique identifier (e.g., "SHIRT-BLU-M")
+  Money price = 4;
+  map<string, string> attributes = 5;  // e.g., {"color": "blue", "size": "M"}
+  // Inventory is optional and only populated when explicitly requested.
+  // Use InventoryService.GetInventory for real-time stock data.
+  // In ListProducts, this is NOT populated by default to avoid N+1 queries.
+  optional Inventory inventory = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// Category represents a product category with hierarchical structure.
+message Category {
+  string id = 1;
+  string name = 2;
+  optional string parent_id = 3;
+  repeated Category children = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// Inventory represents the stock level for a SKU.
+message Inventory {
+  string sku_id = 1;
+  int64 quantity = 2;    // Total stock quantity
+  int64 reserved = 3;    // Quantity reserved by pending orders
+  int64 available = 4;   // quantity - reserved
+  int64 version = 5;     // For optimistic locking
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// Reservation represents an inventory reservation for order processing.
+message Reservation {
+  string id = 1;          // UUID v7
+  ReservationStatus status = 2;
+  repeated ReservationItem items = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  int64 remaining_ttl_seconds = 6;  // Seconds until expiration (for pending only)
+}
+
+// ReservationItem represents a single SKU reservation within a batch.
+message ReservationItem {
+  string sku_id = 1;
+  int64 quantity = 2;
+}
+
+// InsufficientStockDetail provides details about insufficient stock errors.
+// Attached to RESOURCE_EXHAUSTED errors via Connect error details.
+message InsufficientStockDetail {
+  repeated InsufficientItem items = 1;
+}
+
+// InsufficientItem identifies a SKU with insufficient stock.
+message InsufficientItem {
+  string sku_id = 1;
+  int64 requested = 2;
+  int64 available = 3;
+}
+
+// BatchValidationError provides details about batch validation failures.
+message BatchValidationError {
+  string field = 1;       // e.g., "items"
+  string constraint = 2;  // e.g., "max_size"
+  string value = 3;       // e.g., "50"
+}

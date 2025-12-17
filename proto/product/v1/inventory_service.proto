@@ -1,0 +1,175 @@
+// ==============================================================================
+// Inventory Service API
+// gRPC service for inventory management and reservation operations
+// ==============================================================================
+
+syntax = "proto3";
+
+package product.v1;
+
+import "product/v1/types.proto";
+
+option go_package = "github.com/daisuke8000/example-ec-platform/gen/product/v1;productv1";
+
+// InventoryService provides inventory management and reservation operations.
+// This service handles stock tracking and the TCC (Try-Confirm-Cancel) pattern
+// for distributed transaction management with the Order Service.
+service InventoryService {
+  // ============================================================================
+  // Inventory Operations
+  // ============================================================================
+
+  // GetInventory retrieves current stock levels for a SKU.
+  // Returns NOT_FOUND if SKU doesn't exist.
+  rpc GetInventory(GetInventoryRequest) returns (GetInventoryResponse);
+
+  // UpdateInventory modifies the stock quantity for a SKU.
+  // Returns NOT_FOUND if SKU doesn't exist.
+  // Returns ABORTED if version conflict (optimistic locking).
+  // Returns INVALID_ARGUMENT if update would result in negative available quantity.
+  // Returns PERMISSION_DENIED if caller lacks admin role.
+  rpc UpdateInventory(UpdateInventoryRequest) returns (UpdateInventoryResponse);
+
+  // ============================================================================
+  // Reservation Operations (TCC Pattern)
+  // ============================================================================
+
+  // BatchReserveInventory atomically reserves inventory for multiple SKUs.
+  // This is the "Try" phase of the TCC pattern.
+  //
+  // Behavior:
+  // - All-or-Nothing: Either all items are reserved or none are
+  // - Idempotent: Same idempotency_key returns same response
+  // - TTL: Reservations expire after 15 minutes (configurable)
+  //
+  // Returns RESOURCE_EXHAUSTED with InsufficientStockDetail if any SKU lacks stock.
+  // Returns INVALID_ARGUMENT if batch size exceeds limit (50 SKUs).
+  rpc BatchReserveInventory(BatchReserveInventoryRequest) returns (BatchReserveInventoryResponse);
+
+  // ConfirmReservation permanently commits the reservation.
+  // This is the "Confirm" phase of the TCC pattern.
+  //
+  // Behavior:
+  // - Decrements actual inventory quantity
+  // - Marks reservation as CONFIRMED
+  // - Idempotent: Same idempotency_key returns same response
+  //
+  // Returns NOT_FOUND if reservation doesn't exist.
+  // Returns ABORTED if reservation has expired (status: EXPIRED).
+  // Returns FAILED_PRECONDITION if reservation is not in PENDING state.
+  rpc ConfirmReservation(ConfirmReservationRequest) returns (ConfirmReservationResponse);
+
+  // ReleaseInventory cancels a reservation and returns stock.
+  // This is the "Cancel" phase of the TCC pattern.
+  //
+  // Behavior:
+  // - Returns reserved quantity to available stock
+  // - Marks reservation as RELEASED
+  // - Idempotent: Same idempotency_key returns same response
+  //
+  // Returns NOT_FOUND if reservation doesn't exist.
+  // Returns FAILED_PRECONDITION if reservation is already CONFIRMED or EXPIRED.
+  rpc ReleaseInventory(ReleaseInventoryRequest) returns (ReleaseInventoryResponse);
+
+  // UpdateReservation adjusts the quantity of an existing reservation.
+  //
+  // Behavior:
+  // - Increase: Requires availability check
+  // - Decrease: Always succeeds (releases partial quantity)
+  //
+  // Returns NOT_FOUND if reservation doesn't exist.
+  // Returns RESOURCE_EXHAUSTED if increasing beyond available quantity.
+  // Returns FAILED_PRECONDITION if reservation is not in PENDING state.
+  rpc UpdateReservation(UpdateReservationRequest) returns (UpdateReservationResponse);
+
+  // GetReservationStatus retrieves the current state of a reservation.
+  // Returns status NOT_FOUND (in response, not error) if reservation doesn't exist.
+  rpc GetReservationStatus(GetReservationStatusRequest) returns (GetReservationStatusResponse);
+}
+
+// ============================================================================
+// Inventory Request/Response Messages
+// ============================================================================
+
+message GetInventoryRequest {
+  string sku_id = 1;
+}
+
+message GetInventoryResponse {
+  Inventory inventory = 1;
+}
+
+message UpdateInventoryRequest {
+  string sku_id = 1;
+  int64 quantity = 2;      // New absolute quantity (not delta)
+  int64 version = 3;       // For optimistic locking; must match current version
+}
+
+message UpdateInventoryResponse {
+  Inventory inventory = 1;
+}
+
+// ============================================================================
+// Reservation Request/Response Messages
+// ============================================================================
+
+message BatchReserveInventoryRequest {
+  // Items to reserve (max 50)
+  repeated ReservationItem items = 1;
+
+  // Idempotency key for exactly-once semantics (required, max 256 chars)
+  // Recommended format: "{order-id}-reserve" or UUID
+  string idempotency_key = 2;
+}
+
+message BatchReserveInventoryResponse {
+  Reservation reservation = 1;
+}
+
+message ConfirmReservationRequest {
+  string reservation_id = 1;
+
+  // Idempotency key for exactly-once semantics
+  // Recommended format: "{order-id}-confirm"
+  string idempotency_key = 2;
+}
+
+message ConfirmReservationResponse {
+  Reservation reservation = 1;
+}
+
+message ReleaseInventoryRequest {
+  string reservation_id = 1;
+
+  // Idempotency key for exactly-once semantics
+  // Recommended format: "{order-id}-release"
+  string idempotency_key = 2;
+}
+
+message ReleaseInventoryResponse {
+  Reservation reservation = 1;
+}
+
+message UpdateReservationRequest {
+  string reservation_id = 1;
+
+  // New quantities for specific SKUs
+  // Only include items that need quantity changes
+  repeated ReservationItem items = 2;
+
+  // Idempotency key for exactly-once semantics
+  // Recommended format: "{order-id}-update-{version}"
+  string idempotency_key = 3;
+}
+
+message UpdateReservationResponse {
+  Reservation reservation = 1;
+}
+
+message GetReservationStatusRequest {
+  string reservation_id = 1;
+}
+
+message GetReservationStatusResponse {
+  Reservation reservation = 1;
+}
