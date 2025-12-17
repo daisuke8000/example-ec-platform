@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Generate Proto Visualization
-        uses: daisuke8000/coral@latest
+        uses: daisuke8000/coral@v0.1.4
         with:
           proto-path: 'proto'
           output-path: 'coral-output'
