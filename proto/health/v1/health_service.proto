@@ -1,0 +1,43 @@
+// ==============================================================================
+// Health Check Service API
+// gRPC health checking protocol for service availability monitoring
+// ==============================================================================
+
+syntax = "proto3";
+
+package health.v1;
+
+option go_package = "github.com/daisuke8000/example-ec-platform/gen/health/v1;healthv1";
+
+// HealthService provides health checking for gRPC services.
+// Compatible with Kubernetes liveness and readiness probes.
+service HealthService {
+  // Check returns the health status of the service.
+  // Returns SERVING if the service is healthy.
+  // Returns NOT_SERVING if the service is unhealthy.
+  rpc Check(CheckRequest) returns (CheckResponse);
+}
+
+// CheckRequest identifies the service to check.
+message CheckRequest {
+  // Service name to check. Empty string checks the overall server health.
+  string service = 1;
+}
+
+// CheckResponse contains the health status.
+message CheckResponse {
+  // Current serving status of the service.
+  ServingStatus status = 1;
+}
+
+// ServingStatus represents the health state of a service.
+enum ServingStatus {
+  // Status unknown (default, should not occur in normal operation).
+  SERVING_STATUS_UNSPECIFIED = 0;
+
+  // Service is healthy and accepting requests.
+  SERVING_STATUS_SERVING = 1;
+
+  // Service is unhealthy and not accepting requests.
+  SERVING_STATUS_NOT_SERVING = 2;
+}
