@@ -7,6 +7,7 @@ on:
       - 'proto/**'
       - 'buf.yaml'
       - 'buf.lock'
+      - '.github/workflows/proto-pr-analysis.yml'
 
 permissions:
   contents: read
@@ -19,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Analyze Proto Dependencies
-        uses: daisuke8000/coral@v0.1.5
+        uses: daisuke8000/coral@v0.2.1
         with:
           proto-path: 'proto'
           comment-on-pr: 'true'
