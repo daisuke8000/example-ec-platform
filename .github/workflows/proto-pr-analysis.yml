@@ -7,6 +7,7 @@ on:
       - 'proto/**'
       - 'buf.yaml'
       - 'buf.lock'
+      - '.github/workflows/proto-pr-analysis.yml'
 
 permissions:
   contents: read
